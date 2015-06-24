@@ -336,7 +336,30 @@ module JIRA
     # is not set
     def fetch(reload = false, query_params = {})
       return if expanded? && !reload
-      response = client.get(url_with_query_params(url, query_params))
+      begin
+        response = client.get(url_with_query_params(url, query_params))
+      rescue JIRA::HTTPError => err
+        response = err.exception.response
+        # Try to translate HTTP errors
+        if response.content_type == "application/json" then
+            require 'json'
+            errJSON = JSON.parse response.body
+            if errJSON["errorMessages"] && errJSON["errorMessages"].size == 1 then
+              if errJSON["errorMessages"][0] == "Issue Does Not Exist" then
+              # Issue does not exist. This can happen e.g. if the search index is outdated
+                if attrs["key"] then
+                  raise "Issue #{attrs["key"]} does not exist"
+                else
+                  raise errJSON["errorMessages"][0]
+                end
+              else
+                raise errJSON["errorMessages"][0]
+              end
+            end
+        end
+        # Nothing we recognize; re-raise
+        raise
+      end
       set_attrs_from_response(response)
       @expanded = true
     end
